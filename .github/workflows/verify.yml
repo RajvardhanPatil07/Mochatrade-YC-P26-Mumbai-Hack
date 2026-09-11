@@ -1,0 +1,83 @@
+name: MarketBridge CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      MARKETBRIDGE_DISABLE_RESEARCH_FEED: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.12.9"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install Python dependencies
+        run: uv sync
+
+      - name: Install locked frontend dependencies
+        run: npm --prefix apps/web ci
+
+      - name: Verify lint, tests, types, and frontend build
+        run: make verify
+
+      - name: Install browser for end-to-end tests
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare retained evidence directories
+        run: mkdir -p artifacts/ui-qa
+
+      - name: Verify market-data and synthetic demo flow end to end
+        run: make e2e
+
+      - name: Export synthetic functional evaluation
+        run: make evaluate
+
+      - name: Export synthetic replay
+        run: make replay
+
+      - name: Measure risk-gate operating characteristics
+        run: make benchmark-risk > artifacts/risk-benchmark.json
+
+      - name: Retain synthetic evaluation artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: judge-evidence
+          path: |
+            artifacts/*.json
+            artifacts/ui-qa/*.png
+          if-no-files-found: error
+          retention-days: 7
