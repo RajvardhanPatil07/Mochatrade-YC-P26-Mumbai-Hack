@@ -1,195 +1,239 @@
 <div align="center">
 
-# 🌉 MarketBridge
+# 🌉 MarketBridge v1
 
-### The market-safety control plane for 24/7 equity perpetuals
+### Market Truth → Portfolio Risk → Safe Action → Verifiable Proof
 
-**US stocks sleep. Equity perpetuals do not.**<br>
-**MarketBridge verifies the market before leverage acts on it.**
+**US stocks sleep. Equity perpetuals don’t.**
 
-[90-second demo guide](./docs/DEMO.md) · [Architecture](./docs/ARCHITECTURE.md) · [Proof methodology](./docs/PROOF.md) · [Mochatrade integration](./docs/MOCHATRADE_INTEGRATION.md)
+**Verify the market before leverage acts on it.**
+
+[Live Demo](https://marketbridge-production-d284.up.railway.app/) · [Health](https://marketbridge-production-d284.up.railway.app/health) · [Proof + War Room](https://marketbridge-production-d284.up.railway.app/demo/) · [Historical proof](./docs/PROOF.md) · [Architecture](./docs/ARCHITECTURE.md) · [Threat model](./docs/THREAT_MODEL.md) · [Mochatrade integration](./docs/MOCHATRADE_INTEGRATION.md)
 
 </div>
 
-![MarketBridge system architecture](./docs/media/architecture.svg)
+![MarketBridge architecture](./docs/media/architecture.svg)
 
-## The two-minute version
+---
 
-Mochatrade enables 24/7 leveraged trading on assets such as US stocks. But the underlying stock market is not always open, liquid, or producing reliable price discovery. During those gaps, a stale or manipulated venue mark can create unsafe leverage and liquidation decisions.
+## Positioning in one glance
 
-**MarketBridge is a pre-trade safety layer.** It combines independent market evidence, the venue mark, the trader's current exposure, and the requested order. It then returns one explainable action:
-
-| Decision | Meaning |
+| System | Primary question |
 |---|---|
-| `ALLOW` | Evidence and portfolio risk support the order. |
-| `CAP_LEVERAGE` | The order can proceed only at a safer leverage/notional. |
-| `REVIEW` | The evidence is ambiguous and needs intervention. |
-| `BLOCK_NEW_RISK` | New exposure is unsafe under current conditions. |
+| Trading AI / agent terminal | Where might price go? |
+| Fraud / trust engine | Can we trust the user or activity? |
+| Margin engine | How much leverage can the account survive? |
+| **MarketBridge** | **Can we trust the market price that leverage depends on?** |
 
-Every decision produces a short-lived **Safety Passport** containing the inputs, evidence provenance, policy versions, reason codes, expiry, and a fingerprint for deterministic replay.
+## What MarketBridge does
 
-> The core insight: a margin engine asks whether the **account** can survive the leverage. MarketBridge first asks whether the **market price** deserves that leverage.
+A 24/7 equity perpetual can keep trading when the underlying US stock has thin, stale, closed-session, or conflicting price discovery. MarketBridge sits beside the venue and asks a simple question before new leverage is allowed:
 
-## What judges should try
+> **Does this market price deserve enough trust for this order?**
 
-Run the War Room and complete this flow in about 90 seconds:
-
-1. **Normal market** — independent evidence agrees; a leveraged open can proceed.
-2. **Poison the venue mark** — choose an attack size; MarketBridge restricts new risk.
-3. **Prove exits stay open** — the same degraded market still permits a valid `CLOSE`.
-4. **Inspect the Safety Passport** — see the evidence, reasons, policy, expiry, and hash.
-5. **Replay the decision** — compare the real decision with a clearly labelled no-gate counterfactual.
-6. **Recover safely** — repeated stable evidence is required; one clean tick cannot immediately restore leverage.
-
-The demo accepts editable symbol, notional, leverage, account equity, existing exposure, evidence mode, and attack size. `AUTO` uses qualified live evidence when a genuine independent quorum exists; otherwise it falls back to an explicitly labelled deterministic synthetic fixture. No trade is submitted.
-
-## How it works
+The safety path is intentionally small:
 
 ```text
-independent market evidence ──┐
-                              ├─> Market Truth ─┐
-venue/perpetual mark ─────────┘                 │
-                                                ├─> Risk Gateway ─> decision
-account + portfolio + order intent ─────────────┘                    │
-                                                                      ▼
-                                                               Safety Passport
-                                                                      │
-                                                                      ▼
-                                                            deterministic replay
+free/live market evidence ──┐
+                            ├──> Market Truth ──┐
+venue mark / perp context ──┘                   │
+                                                ├──> Order Risk Gate
+account exposure + order intent ────────────────┘          │
+                                                           ├── ALLOW
+                                                           ├── CAP_LEVERAGE
+                                                           ├── REVIEW
+                                                           └── BLOCK_NEW_RISK
+                                                                    │
+                                                                    ▼
+                                                             Safety Passport
+                                                                    │
+                                                                    ▼
+                                                             deterministic replay
 ```
 
-MarketBridge enforces five important invariants:
+Valid `REDUCE` and `CLOSE` requests remain available when evidence degrades. `OPEN` and `INCREASE` fail closed when Market Truth is not sufficiently qualified.
 
-- **No fake consensus:** provider labels and venue families are checked separately, so correlated sources do not become false independence.
-- **Fail closed for new risk:** stale, insufficient, conflicting, or halted evidence cannot silently authorize more exposure.
-- **Never trap the trader:** valid `REDUCE` and `CLOSE` requests remain available during degraded conditions.
-- **Recovery has hysteresis:** a market moves through `RECOVERY_PENDING` instead of reopening leverage after one good observation.
-- **AI cannot weaken safety:** learned estimates may tighten the posture, but deterministic rules own the final risk-critical decision.
+> **Mochatrade users post rupee margin against a market that can keep price-discovering while they sleep.**
 
-## Why this is useful to Mochatrade
+## Proof before the synthetic attack
 
-| Without MarketBridge | With MarketBridge |
-|---|---|
-| Venue price can become the only truth | Venue mark is checked against independent Market Truth |
-| Risk controls return a binary yes/no | Unsafe orders receive a safe leverage/notional alternative when possible |
-| A warning disappears after the moment | Every decision creates a replayable Safety Passport |
-| Data vendors may look independent by name | Provider and venue-family independence is explicit |
-| A single clean tick can reopen risk | Recovery requires repeated stable evidence |
+The `/demo/` judge flow starts with evidence before the controlled War Room:
 
-The host integration is a small pre-trade call:
+1. **Historical reconstruction** — published July 2026 SK Hynix / TradeXYZ observations pass through the same deterministic consequence function used by the live risk gate. It is explicitly counterfactual and consumes no future outcome.
+2. **Seeded policy regression** — thousands of varied, reproducible market/account/order states exercise the deterministic safety policy. The report shows action distribution, safety-invariant violations, scenario coverage, and measured core/gateway p50/p95/p99 latency. It deliberately does **not** claim classifier precision/recall from self-labelled fixtures.
+3. **Portfolio Risk Firewall** — editable account, exposure, symbol, notional and leverage inputs are recomputed through the same RiskGateway; qualified Market Truth can still be capped by concentration, account, or session risk.
+4. **Safe Alternative** — capped requests return the maximum permitted leverage and notional instead of a binary no.
+5. **Host integration proof** — a reference Mochatrade pre-trade adapter shows how a host binds the short-lived Safety Passport to the exact order.
+
+Proof endpoints:
 
 ```text
-Mochatrade order intent
-        │
-        ▼
-POST /v1/integrations/mochatrade/risk-check
-        │
-        ├── ALLOW
-        ├── CAP_LEVERAGE + safe alternative
-        ├── REVIEW
-        └── BLOCK_NEW_RISK
-```
-
-See the reference adapter in [`examples/mochatrade-pretrade.ts`](./examples/mochatrade-pretrade.ts).
-
-## Proof, not just a dashboard
-
-The project includes three judge-facing evidence layers:
-
-- **Historical reconstruction:** published incident observations are passed through the same deterministic consequence function used by the live gate. It is labelled counterfactual and does not use future outcomes.
-- **Seeded policy regression:** reproducible varied market/account/order states measure action distribution, invariant violations, scenario coverage, and in-process p50/p95/p99 latency. It is not presented as classifier accuracy or a historical backtest.
-- **Portfolio Risk Firewall:** concentration, account, session, and existing exposure can cap an order even when Market Truth itself is qualified.
-
-Useful endpoints:
-
-```text
-GET  /v1/proof/historical
+GET /v1/proof/historical
 GET  /v1/proof/benchmark?cases=2000&seed=20260911
 GET  /v1/proof/portfolio
 POST /v1/proof/portfolio
+```
+
+The historical view is `HISTORICAL_RECONSTRUCTION`, not a licensed consolidated feed. The operating suite is `SYNTHETIC_POLICY_REGRESSION`, not a classifier benchmark or historical-market backtest. Its seed is reported so the varied state space is reproducible, and latency values are measured when the endpoint runs rather than hard-coded into this README.
+
+See [proof methodology](./docs/PROOF.md), [threat model](./docs/THREAT_MODEL.md), [Mochatrade integration](./docs/MOCHATRADE_INTEGRATION.md), and the [90-second demo recording script](./docs/DEMO_VIDEO_SCRIPT.md).
+
+---
+## The hackathon demo
+
+Open `/demo/` and run the judge flow:
+
+1. **Choose the inputs** — change symbol, order notional, leverage, account equity, existing exposure, attack magnitude and evidence mode.
+2. **Normal market** — AUTO uses a genuinely qualified live reference when the configured independent-provider quorum exists; otherwise it uses a clearly labelled synthetic fixture seeded from the current display price.
+3. **Poison venue mark** — apply the judge-selected basis-point attack and recompute the order decision.
+4. **Prove exit stays open** — the same degraded market still allows a valid close.
+5. **Inspect provenance** — evidence cards show provider identity, observed price, event age, eligibility and whether the evidence is live or a synthetic fixture.
+6. **Safety Passport + replay** — inspect the decision fingerprint and compare the actual safety decision with a clearly-labelled no-gate counterfactual.
+7. **Recover safely** — repeated stable evidence moves through `RECOVERY_PENDING` instead of enabling leverage after one good tick.
+
+The War Room reports `LIVE_DERIVED_DEMO` when a qualified live quorum is actually available and `SYNTHETIC_DEMO` otherwise. Synthetic witnesses use generic fixture names and never impersonate Alpaca, Twelve Data, or another real provider. No trade is submitted and no fake fill/savings claim is made.
+
+## Free-first provider mesh
+
+MarketBridge v1 is provider-agnostic and does not require a paid institutional feed for the public hackathon demo.
+
+| Capability | Provider | v1 role |
+|---|---|---|
+| Live US equity display/evidence | **Alpaca Basic / IEX** | Free-first underlying-equity stream; IEX remains one witness |
+| Perp / venue state | **Hyperliquid** | Venue mark, oracle, mid, funding/OI context; never fed back into independent Market Truth |
+| Financial news | **Marketaux** | Cached ticker-linked context only |
+| Official company events/facts | **SEC EDGAR** | Primary-source filings and XBRL context; no API key |
+| Symbol/reference metadata | **Nasdaq Symbol Directory** | Security master |
+| Optional equity cross-check | **Twelve Data** | Context/internal by default; risk-eligible only after explicit `TWELVE_DATA_RISK_ELIGIBLE=1` entitlement opt-in |
+| Research fallback | **Yahoo/yfinance** | Legacy research-only, disabled by default, never risk eligible |
+| Optional macro context | **FRED** | Context only |
+| Optional crypto overview | **CoinGecko Demo** | Display/context only |
+
+**Databento is not part of the v1 free-first product/deployment path.** The paid dependency, environment requirement and import workflow are removed from this branch.
+
+Every provider exposed by `/v1/providers` separates **supported capability**, **configuration**, and **observed runtime health**. A public adapter that has not been probed is reported as `SUPPORTED / NOT_PROBED`, not falsely labelled `READY`.
+
+## Three planes, one boundary
+
+### 1. Market evidence plane
+
+Used to reason about the underlying market. Provenance, event time, receipt time, provider family, venue family, freshness and eligibility remain explicit.
+
+### 2. Venue plane
+
+Hyperliquid/Mochatrade context tells MarketBridge what the trading venue currently believes. It is compared **against** independent Market Truth; it is never allowed to manufacture that truth.
+
+### 3. Intelligence context plane
+
+Marketaux news, SEC filings/fundamentals, FRED and optional research sources help explain events. They return `affects_market_truth=false` and cannot loosen deterministic safety controls.
+
+## New judge-facing routes
+
+| Route | Purpose |
+|---|---|
+| `/` | v1 product thesis and first-view demo CTA |
+| `/demo/` | proof-first judge flow + Market Truth War Room |
+| `/providers/` | Free-first capability/provider mesh and trust boundaries |
+| `/intelligence/` | Marketaux news + official SEC context, visibly separated from Market Truth |
+| `/markets/` | Existing live market monitor |
+| `/terminal/` | Existing deeper market/risk workstation |
+
+## API additions
+
+```text
+GET  /v1/providers
+GET  /v1/intelligence/{symbol}
+GET  /v1/proof/historical
+GET  /v1/proof/benchmark
+GET  /v1/proof/portfolio
+POST /v1/proof/portfolio
 POST /v1/demo/war-room
+POST /v1/demo/war-room/replay
+POST /v1/demo/war-room/reset
+POST /v1/demo/live-baseline
 POST /v1/order/safe-alternative
+```
+
+The mature safety APIs remain intact:
+
+```text
 POST /v1/integrations/mochatrade/risk-check
+GET  /v1/passports/{passport_id}
 POST /v1/replay/risk-decision
+POST /v1/passports/{passport_id}/outcome
 ```
 
 ## Run locally
 
-Requirements: Python 3.12+, Node.js 24+, [`uv`](https://docs.astral.sh/uv/), and npm.
+Requirements: Python 3.12+, Node 24+, `uv`, npm.
 
 ```bash
-git clone https://github.com/RajvardhanPatil07/Mochatrade-YC-P26-Mumbai-Hack.git
-cd Mochatrade-YC-P26-Mumbai-Hack
 cp .env.example .env
 make setup
 make demo
 ```
 
-Open [http://127.0.0.1:8000/demo/](http://127.0.0.1:8000/demo/). The synthetic judge flow works without market-data credentials.
-
-For live free-first display/evidence, configure supported provider credentials in `.env`. Secrets must remain server-side and must never use `NEXT_PUBLIC_*` variables.
-
-## Tech stack
-
-| Layer | Technology |
-|---|---|
-| Web experience | Next.js 16, React 19, TypeScript, Lightweight Charts |
-| API and policy engine | FastAPI, Python 3.12, Pydantic |
-| Evidence and local analytics | DuckDB, JSONL replay records |
-| Market/context adapters | Alpaca/IEX, Hyperliquid, Marketaux, SEC EDGAR, Nasdaq directory, optional Twelve Data |
-| Verification | Pytest, Hypothesis, Vitest, Playwright, Ruff, GitHub Actions |
-| Deployment | Docker/Railway backend + exported frontend; optional split Vercel frontend |
-
-The deterministic risk-critical policy path makes **zero LLM calls** and requires **zero paid API calls inside the policy function**.
-
-## Project structure
+Open:
 
 ```text
-apps/web/                    Next.js judge experience and market workstation
-backend/marketbridge/        FastAPI application, evidence engine, and risk gateway
-backend/marketbridge/risk/   Policy, portfolio controls, recovery, and passports
-config/                      Asset and entitlement policies
-docs/                        Architecture, proof, threat model, and demo guides
-examples/                    Mochatrade pre-trade integration example
-fixtures/                    Reproducible adversarial market scenarios
-scripts/                     Benchmarks, replay, evaluation, and evidence export
-tests/                       Backend, policy, security, and property tests
+http://127.0.0.1:8000/
+http://127.0.0.1:8000/demo/
 ```
 
-## Verify the build
+The War Room needs no market-data key because AUTO can fall back to its explicit synthetic fixture. To enable real free-first market display, add Alpaca credentials to the backend `.env`. Provider credentials must never be exposed through `NEXT_PUBLIC_*` variables.
+
+The canonical backend entrypoint is `marketbridge.app:app`. Railway/Docker serves both API and the exported frontend from one process. The Vercel configuration is frontend-only; for a split Vercel frontend, set `NEXT_PUBLIC_API_BASE` to the deployed backend URL at build time.
+
+## Verify
 
 ```bash
-make verify          # lint + typecheck + unit tests + frontend build + Python tests
-make benchmark-risk # deterministic safety-policy regression
-make e2e             # browser-level demo and risk-gate flows
-make live-check      # configured provider health and entitlement checks
+make verify
+make benchmark-risk
+make e2e
+make live-check
 ```
 
-CI runs the same core verification on every push.
+CI checks Python lint/tests, TypeScript, frontend unit tests/build, browser flows, synthetic evaluation and deterministic replay.
 
-## Provider trust boundary
+## Safety / honesty boundary
 
-MarketBridge is provider-agnostic. Market prices, venue state, and intelligence context are deliberately separated:
+MarketBridge is a hackathon/pilot advisory architecture, **not** a certified exchange oracle, broker, custody system or liquidation authority.
 
-- **Market evidence** may contribute to Market Truth only when freshness, provenance, entitlement, and independence checks pass.
-- **Venue data** is compared with Market Truth; it cannot manufacture independent truth.
-- **News, filings, macro, and research context** may explain events but cannot loosen a trading control.
+- No exchange signing key, wallet key or custody key is held.
+- No live trade is submitted by the demo.
+- AI may tighten but never loosen deterministic controls.
+- Learned estimates never become trusted anchors on their own.
+- One provider is never presented as independent consensus.
+- Multiple vendor labels sharing one upstream are not counted as independent witnesses.
+- News, filings, macro and research data do not create Market Truth.
+- Unknown entitlement/display rights are treated conservatively.
+- Counterfactual replay reports prevented **simulated additional exposure**, not guaranteed savings.
 
-See [the free-first provider design](./docs/FREE_FIRST_STACK.md) and [threat model](./docs/THREAT_MODEL.md).
+## Attribution and license
 
-## Safety and honesty boundary
+Repository attribution is intentionally limited to contributors visible in this project rather than claiming another hackathon team identity:
 
-MarketBridge is a hackathon/pilot advisory architecture, not a certified exchange oracle, broker, custody system, or liquidation authority.
+- `@RajvardhanPatil07`
+- `@ritz2607`
 
-- The demo submits no trade and holds no wallet, custody, or exchange signing key.
-- Synthetic inputs are always labelled; they never impersonate real providers.
-- Counterfactual replay reports simulated additional exposure, not guaranteed savings or avoided loss.
-- Market-data rights and provider readiness are reported conservatively.
+Before final submission, ensure the official hackathon registration names exactly match the submission form. See [TEAM.md](./TEAM.md).
 
-## Team and context
+Licensed under MIT. See [LICENSE](./LICENSE).
 
-Project contributors: [`@RajvardhanPatil07`](https://github.com/RajvardhanPatil07) and [`@ritz2607`](https://github.com/ritz2607). See [TEAM.md](./TEAM.md) for the attribution boundary.
+## Deployment economics
 
-The original Mochatrade challenge/company context is preserved in [Mochatrade.md](./Mochatrade.md).
+The deterministic risk-critical policy path uses **0 LLM calls** and **0 paid API calls inside the policy function**. Hosting and market-data licensing remain deployment/entitlement specific; MarketBridge does not invent a dollar cost without measured inputs.
 
-Licensed under the [MIT License](./LICENSE).
+## Why this is different
+
+Trading AI asks: **Where will price go?**
+
+Fraud systems ask: **Can we trust this user or transaction?**
+
+Traditional margin systems ask: **How much leverage can this account survive?**
+
+MarketBridge asks upstream:
+
+> **Can we trust this market enough for this portfolio to take this leverage — and can we prove why we allowed or denied it?**
+
+That is the product.
